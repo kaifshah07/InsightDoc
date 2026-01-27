@@ -90,7 +90,7 @@ for chunk in all_chunks:  #LOOP THROUGH EACH CHUNK
         "source" : chunk["source"],
         "chunk_id" : chunk["chunk_id"]
     }
-    embedded_chunks.append(embedded_chunks)
+    embedded_chunks.append(embedding_chunks)
     
 print("the embedded vectores :" , embedded_chunks[0:2])
 print("Total embedded chunks:- " , len(embedded_chunks))
@@ -100,3 +100,4 @@ print("Embedding size: ", len(embedded_chunks[0]["embedding"]))
 
 
     
+
