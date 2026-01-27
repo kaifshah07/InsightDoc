@@ -1,0 +1,66 @@
+-Decide What Documents You Support
+-What you do: Decide 2 or 3 document types only.
+Recommendation:
+PDF
+DOCX
+TXT (optional)
+
+
+Your system should be able to:
+1.	Accept a document file from a user
+2.	Save that file somewhere safe
+3.	Look at the file type (PDF / DOCX / TXT)
+4.	Read the contents based on file type
+5.	Convert the document into plain text
+6.	Show that text (console or response)
+This is called data ingestion in industry
+
+STEP 3: Think About the Upload Flow (Very Important)
+1. In your mind, the flow is:
+2. User sends a file
+3. Backend receives it
+4. Backend checks:
+5. Is this a supported file?
+6. Backend saves it
+7. Backend starts reading it
+
+Why this order:
+Validation first
+Processing later
+Prevents crashes and bad data
+
+STEP 5: Reading the Document (Conceptual Only)
+For each file type:
+PDF
+Read page by page
+Extract text from each page
+Combine all pages into one string
+
+DOCX
+Read paragraph by paragraph
+Combine paragraphs into one string
+
+TXT
+Read line by line
+Combine lines into one string
+
+Output:
+One plain text string
+This string is what AI will use later.
+
+STEP 6: What To Do With Extracted Text
+For now:
+Just print i
+Or return it as response
+
+Why:
+You need to see it
+You need to verify correctness
+
+Later:
+You will store it
+You will chunk it
+You will embed it
+
+But not now.
+
