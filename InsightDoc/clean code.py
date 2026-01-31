@@ -1,10 +1,11 @@
 import os
 from PyPDF2 import PdfReader 
 import re 
-from sentence_transformers import SentenceTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 # document ingestion, batch processing, and text normalization pipeline 
-pdf_folder_path = "data/pdfs"
+pdf_folder_path = "D:/Engennering/BE Project/InsightDoc_old/data/pdfs"
 print("The current working directory" , os.getcwd())
 if os.path.exists(pdf_folder_path):
     print("Pdf folder found ")
@@ -72,32 +73,48 @@ for doc_name, text in document_text.items():
 
         start += (chunk_size - overlap)
         chunk_id += 1
-print(all_chunks[0:5])
+print("Chunking Starts!!")
+print("The total chunks are:- " , len(all_chunks))
+# print(all_chunks[36], all_chunks[2])
 
-# loading the model from secntence tranformer lib
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2") # loading the pre trained sementic model
+# We had tested the library for the embeddings which is sentence tranformers and the openai api , 
+# But both did not prove right and then we shifted to TF-IDF which is give below (Main MODEL)
 
-#to store the embedding chunks (vectors of the chunk)
-embedded_chunks = []
-for chunk in all_chunks:  #LOOP THROUGH EACH CHUNK
-    chunk_text = chunk["text"]  #Extract the text from the chunk 
-    if not chunk_text:
+chunk_texts = [chunk["text"] for chunk in all_chunks]
+print("The total chunks for TD-IDF are:-" , len(chunk_texts))
+
+TfidfVectorizer = TfidfVectorizer(
+    max_features=5000,
+    stop_words="english"
+)
+tfidf_matrix = TfidfVectorizer.fit_transform(chunk_texts)
+print("TF-IDF martix shape:-" , tfidf_matrix.shape)
+top_k = 5
+min_similarity = 0.1 
+while True:
+    query = input("\nEnter your Query. Type 'exit' to quit: " ).strip()
+    if query.lower() in {"exit" , "quit"}:
+        print("Exiting the search")
+        break
+    if not query:
+        print("please enter avalid query!")
         continue
-    embedding_vector = embedding_model.encode(chunk_text) 
-    embedding_chunk = {
-        "text" : chunk_text,
-        "embedding" : embedding_vector,
-        "source" : chunk["source"],
-        "chunk_id" : chunk["chunk_id"]
-    }
-    embedded_chunks.append(embedding_chunks)
+    query_vector = TfidfVectorizer.transform([query])
     
-print("the embedded vectores :" , embedded_chunks[0:2])
-print("Total embedded chunks:- " , len(embedded_chunks))
-print("Embedding size: ", len(embedded_chunks[0]["embedding"]))
-
-# vector DB - Connection
-
-
-    
-
+    similarity_scores = cosine_similarity(query_vector,tfidf_matrix)[0]
+    filtred_indices = [i for i , score in enumerate(similarity_scores) if score>= min_similarity]
+    if not filtred_indices:
+        print("No relevent chunks found for your Query..... \n Try again!!")
+        continue
+    filtred_indices.sort(key=lambda i:similarity_scores[i], reverse= True)
+    print("\nTop relevent chunks: \n")
+    for rank ,idx in enumerate(filtred_indices[:top_k],start =1):
+        chunk = all_chunks[idx]
+        print(f"\nRank #{rank}")
+        print(f"\nPDF Source: {chunk['source']}")
+        print(f"Chunk ID:- {chunk['chunk_id']}")
+        print(f"\nSimiliraty Scores:- {similarity_scores[idx]:.3f}")
+        print("Text Preview:- ",chunk["text"][:500], "...")
+        print("-" *80 )
+        
+        
