@@ -1,7 +1,9 @@
 import os
 import re
 from PyPDF2 import PdfReader 
-from sentence_transformers import SentenceTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+# from sentence_transformers import SentenceTransformer
 
 
 """MOTO OF THE PROJECT - “From a large set of documents, find the most relevant information for a user question.”"""
@@ -13,7 +15,7 @@ from sentence_transformers import SentenceTransformer
 # 1. Uploading document form the folder 
 
 # loop for finding the pdf folder 
-pdf_folder_path = "data/pdfs"
+pdf_folder_path = "D:/Engennering/BE Project/InsightDoc_old/data/pdfs"
 print("The current working directory" , os.getcwd())
 if os.path.exists(pdf_folder_path):
     print("Pdf folder found ")
@@ -102,7 +104,7 @@ for pdf_file in pdf_files:
     #2. Replace mulptiple spaces with a single space
     full_text = re.sub(r"\s+", " " , full_text)
     #3. Remove non-printable char 
-    full_text = " ".join(char for char in full_text if char.isprintable())
+    full_text = "".join(char for char in full_text if char.isprintable())
     #4. Remove leading and traling spaces 
     full_text = full_text.strip()
     
@@ -150,7 +152,7 @@ Now the next step is text chuncking , which is the process of breaking the long 
 full peices of text -
 Instead of this - 10,000 words in one block
 We do this-
-Chunk 1 → 500 words  
+Chunk 1 → 500 words  t
 Chunk 2 → 500 words  
 Chunk 3 → 500 words  
 Each chunk becomes an independent unit.
@@ -230,14 +232,15 @@ for doc_name,text in document_text.items():
     while start < text_length:      # extracting one chunk saftely 
         chunk_text = text[start : start + chunk_size] # Slicing here for the text in the chunk for processing  
         chunk_data = {
-            "chunk_id" : chunk_id
-            "source" :doc_name,
-            "text" : chunk_text,
+            "chunk_id": chunk_id,
+            "source": doc_name,
+            "text": chunk_text
         }
         all_chunks.append(chunk_data)
         
         start += (chunk_size - overlap)
         chunk_id += 1
+print("The total chunks are :- ", len(all_chunks))
     
 # all this is done now 
 
@@ -271,25 +274,283 @@ Vector (numbers)
 Store with metadata
 
 --- we are using embeding library - sentence-transformers 
+********* In our case the library sentence tranfroemr and the openai api doesnot worker , therefoer we shifted
+to the other search and embedding techq called TF-IDF
 """
     
-# loading the model from secntence tranformer lib
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2") # loading the pre trained sementic model
+# # loading the model from secntence tranformer lib
+# embedding_model = SentenceTransformer("all-MiniLM-L6-v2") # loading the pre trained sementic model
 
-#to store the embedding chunks 
-embedded_chunks = []
-for chunk in all_chunks:  #LOOP THROUGH EACH CHUNK
-    chunk_text = chunk["text"]  #Extract the text from the chunk 
-    if not chunk_text:
+# #to store the embedding chunks 
+# embedded_chunks = []
+# for chunk in all_chunks:  #LOOP THROUGH EACH CHUNK
+#     chunk_text = chunk["text"]  #Extract the text from the chunk 
+#     if not chunk_text:
+#         continue
+#     embedding_vector = embedding_model.encode(chunk_text) 
+#     embedding_chunk = {  # cerating new dictonary 
+#         "text" : chunk_text,
+#         "embedding" : embedding_vector,
+#         "source" : chunk["source"],
+#         "chunk_id" : chunk["chunk_id"]
+#     }
+#     embedded_chunks.append(embedded_chunks)
+# print("Total embedded chunks:- " , len(embedded_chunks))
+# print("Embedding size: ", len(embedded_chunks[0]["embedding"]))
+
+"""
+1️⃣ INTUITION: WHAT TF-IDF REALLY DOES
+Imagine you have 10 document chunks.
+Some words appear:
+everywhere → “the”, “is”, “and”
+only in some documents → “initialization”, “authentication”
+TF-IDF gives:
+low importance to common words
+high importance to rare but meaningful words
+So the system learns:
+“Rare words describe a document better than common words”
+2️⃣ FORMAL MEANING (SIMPLE VERSION)
+TF-IDF = Term Frequency × Inverse Document Frequency
+🔹 Term Frequency (TF)
+How often does a word appear in a document?
+Example:
+"system" appears 5 times in chunk A
+→ higher TF
+🔹 Inverse Document Frequency (IDF)
+How rare is this word across all documents?
+Example:
+"system" appears in 9 out of 10 chunks → low IDF
+"initialization" appears in 1 chunk → high IDF
+🔹 Final Weight
+TF-IDF = TF × IDF
+Words that are:
+✔ frequent in a chunk
+✔ rare overall
+→ get high scores
+3️⃣ WHAT DOES TF-IDF PRODUCE?
+It converts text → vector (numbers).
+Example:
+Chunk: "system initialization process"
+TF-IDF vector:
+[0.0, 0.34, 0.91, 0.12, ...]
+
+Each number corresponds to a word.
+📌 This is similar to embeddings, but:
+statistical
+not semantic
+4️⃣ HOW SEARCH WORKS WITH TF-IDF
+Step-by-step:
+Convert all chunks → TF-IDF vectors
+Convert user query → TF-IDF vector
+Compare query vector with chunk vectors
+Pick most similar chunks
+Comparison is done using cosine similarity.
+5️⃣ WHAT IS COSINE SIMILARITY? (INTUITIVE)
+It measures:
+“How similar is the direction of two vectors?”
+Same direction → very similar
+Different direction → not similar
+Value range:
+0 → not similar
+1 → identical
+6️⃣ HOW THIS FITS INTO YOUR PROJECT
+Your updated pipeline becomes:
+PDFs
+ → Extract text
+ → Clean text
+ → Chunk text
+ → TF-IDF vectors
+ → Similarity search
+ → Retrieve best chunks
+📌 Exactly the same architecture as vector DBs.
+7️⃣ WHAT WE WILL IMPLEMENT (CLEAR PLAN)
+We will implement TF-IDF in 3 small steps:
+STEP 1️⃣
+Prepare chunk list
+[
+  {chunk_text, source_pdf, chunk_id},
+  ...
+]
+STEP 2️⃣
+Use TfidfVectorizer to:
+Fit on all chunks
+Generate vectors
+STEP 3️⃣
+Use cosine similarity to:
+Compare query vs chunks
+Return top-K chunks
+"""
+
+# now implementing the TF-IDF
+
+"""But before code, understand what we need:
+TF-IDF needs:
+A list of texts
+A vectorizer
+A matrix of vectors"""
+
+#1.Extact only text from the all_chunks
+chunk_texts = [chunk["text"] for chunk in all_chunks]
+print("The total chunks for TF-IDF are: " , len(chunk_texts))
+
+#2. Create TF-IDF vectorizer 
+TfidfVectorizer = TfidfVectorizer(
+    max_features = 5000 ,     #limit vocabulary size
+    stop_words="english"      #remove common words like the,this, and. 
+)
+
+# 3. Fit and tranform chunks into vectores 
+tfidf_martix = TfidfVectorizer.fit_transform(chunk_texts)  #this is the main numerical rep of chunks 
+
+"""
+This is the explanation fo the martix below - tfidf_matrix = tfidf_vectorizer.fit_transform(chunk_texts)
+This does two things:
+Learns vocabulary from chunks
+Converts each chunk into a vector
+📌 Result:
+Rows = chunks
+Columns = words
+Values = TF-IDF score
+"""
+
+#4. Verify the vectorization 
+print("TF-IDF Matrix shape :-" ,tfidf_martix.shape)
+# print("The chunk after the vectorization is - " , tfidf_martix)
+
+
+"""
+4️⃣ Shape verification
+print(tfidf_matrix.shape)
+Example output:
+(120, 4321)
+Meaning:
+120 chunks
+4321 unique meaningful words
+✅ This confirms TF-IDF is working.
+"""
+"""Now we want to find the similarity between the words , by using the cosine similarty
+Now we want:“Given a query, find the most relevant chunks”
+
+WHAT NEW CONCEPT ARE WE ADDING?
+🔹 Cosine Similarity
+Measures angle between vectors
+Output range: 0 → 1
+Higher = more relevant
+TF-IDF + cosine similarity = classic IR system
+
+steps - Step 1: Take a user query
+        Step 2: Convert query → TF-IDF vector
+        Step 3: Compute similarity
+        Step 4: Rank chunks by relevance
+        Step 5: Fetch chunks using indices
+
+"""
+# Now moving on to the next step , we are goin to create Intreaction layer that will repeadty interact with t
+# the user by using   a loop
+
+top_k = 5
+min_similarity = 0.1 #to filter the chunks below it , so they can be removed
+# 1. User query
+while True: # this lopp create the continous chating with the user
+    query = input("\nEnter your Query. Type 'exit' to quit: " ).strip()
+    if query.lower() in {"exit" , "quit"}:
+        print("Exiting the search")
+        break
+    if not query:
+        print("please enter avalid query!")
         continue
-    embedding_vector = embedding_model.encode(chunk_text) 
-    embedding_chunk = {  # cerating new dictonary 
-        "text" : chunk_text,
-        "embedding" : embedding_vector,
-        "source" : chunk["source"],
-        "chunk_id" : chunk["chunk_id"]
-    }
-    embedded_chunks.append(embedded_chunks)
-print("Total embedded chunks:- " , len(embedded_chunks))
-print("Embedding size: ", len(embedded_chunks[0]["embedding"]))
+
+    #2. convert the query in to the tdf vector(same as vectorizer)
+    query_vector = TfidfVectorizer.transform([query])
+
+    #3. calculate cosine similiraty  between qurey and al chunks
+    similarity_scores = cosine_similarity(query_vector,tfidf_martix)[0]
+    
+    #Filter chunks by minimum similarity 
+    filtred_indices = [i for i , score in enumerate(similarity_scores) if score>= min_similarity]
+    if not filtred_indices:
+        print("No relevent chunks found for your Query..... \n Try again!!")
+        continue
+    # sort the filtered results by score descending
+    filtred_indices.sort(key=lambda i:similarity_scores[i], reverse= True) 
+        
+
+    # #4. Get the similiraty score as a one D array
+    # scores = similarity_scores[0]
+
+    # #5. Get top 5 most revelant chunk 
+
+    # top_indices = scores.argsort()[::-1][:top_k]
+
+    #6. display the result 
+    print("\nTop relevent chunks: \n")
+    for rank ,idx in enumerate(filtred_indices[:top_k],start =1):
+        chunk = all_chunks[idx]
+        print(f"\nRank #{rank}")
+        print(f"\nPDF Source: {chunk['source']}")
+        print(f"Chunk ID:- {chunk['chunk_id']}")
+        print(f"\nSimiliraty Scores:- {similarity_scores[idx]:.3f}")
+        print("Text Preview:- ",chunk["text"][:500], "...")
+        print("-" *80 )
+        
+        
+        #old code before the ranking and cleaning the chunks 
+        # print("Source_pdf:", all_chunks[idx]["source"])
+        # print("chunk id :" , all_chunks[idx]["chunk_id"])
+        # print("similiraty Scores:- ", score[idx])
+        # print("Text:\n" , all_chunks[idx]["text"][:500]) #shows the frist 500 char
+        # print("-" * 80)
+
+"""The most iIMPORTATN line for the above code block to understand -TF-IDF retrieval works 
+by converting both documents and user queries into numerical vectors, computing similarity 
+scores between them, ranking the scores, and using the resulting indices to retrieve the most
+relevant text chunks from the original dataset."""
+
+"""
+VERY IMPORTANT: HOW TO INTERPRET TF-IDF SCORES
+TF-IDF score meanings (rule of thumb):
+Score	Meaning
+> 0.4	Strong keyword match
+0.2 - 0.4	Relevant
+0.1 - 0.2	Weak relevance
+< 0.1	Mostly noise
+"""
+
+
+# Now moving on to the next step , we are goin to create Intreaction layer that will repeadty interact with t
+# the user by using   a loop
+
+""" now we move to -Result Filtering & Formatting 
+-this is also done in the above code like min_similarity = 0.1 to fliter the most important chunks 
+- 
+
+Goal of this step
+1. Filter out weak matches
+Cosine similarity always returns a value, even for irrelevant chunks.
+Introduce a minimum similarity threshold to discard chunks that are not meaningful.
+2. Improve readability
+Show fewer characters per chunk or add ellipsis (…)
+Add clear ranking or numbering
+Optionally, group by PDF
+3. Make results trustable
+Users only see results above a confidence level
+
+Concepts
+1️⃣ Minimum Similarity Threshold
+Cosine similarity ranges from 0 (totally different) to 1 (identical).
+A threshold (e.g., 0.1) removes chunks that are very different from the query.
+This prevents showing irrelevant text.
+2️⃣ Ranking & Presentation
+Rank chunks by similarity (highest → lowest)
+Show:
+Rank (1,2,3…)
+PDF source
+Chunk ID
+Similarity Score
+Chunk preview (first 300-500 chars)
+3️⃣ Optional Enhancements
+Group results by PDF (so the user can see which documents contain the most relevant info)
+Highlight query terms in the chunk (advanced, optional)
+
+"""
 
