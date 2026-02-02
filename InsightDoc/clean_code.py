@@ -117,4 +117,35 @@ while True:
         print("Text Preview:- ",chunk["text"][:500], "...")
         print("-" *80 )
         
+    # CONTEXT ASSEMBLY
+    print("Now Context Assembly start.")
+    context_char_lim = 3000 
+    context = ""
+    for idx in filtred_indices[:top_k]:
+        chunk = all_chunks[idx]
+        chunk_text = f"[Source: {chunk['source']}, chunk: {chunk['chunk_id']}]\n{chunk['text']}\n\n"
         
+        if len(context) +len(chunk_text) > context_char_lim:
+            print("The character limit is exiciding!!!")
+            break 
+        context += chunk_text
+    print("\nAssembeld Context for LLM :-")
+    print(context[:1000], "...\n") 
+    
+    # Prompt Construction
+    prompt = f"""
+    You are a helpfull assistant.
+    Answer the question using ONLY the information provided in the context below. 
+    If the answer is not present in the context , "say I dont know".
+        
+    Context:
+    {context}
+    
+    Question:
+    {query}
+    
+    Answer:  
+    """
+    print("This is the exact promt that the LLm will see--")
+    print(prompt[:1000] )
+   
