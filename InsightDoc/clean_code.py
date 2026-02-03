@@ -3,6 +3,7 @@ from PyPDF2 import PdfReader
 import re 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import ollama
 
 # document ingestion, batch processing, and text normalization pipeline 
 pdf_folder_path = "D:/Engennering/BE Project/InsightDoc_old/data/pdfs"
@@ -148,4 +149,31 @@ while True:
     """
     print("This is the exact promt that the LLm will see--")
     print(prompt[:1000] )
-   
+    
+    response  = ollama.chat(
+        model="phi",
+        
+        messages=[
+            {
+                "role" : "user",
+                "content" : prompt
+            }
+        ],
+        options={
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "top_k": 40,
+        "num_predict": 512,
+        "repeat_penalty": 1.1    
+        }
+        
+    )
+    answer = response["message"]["content"]
+    
+    print("\nLLM Generated answer: ")
+    print(answer)
+    
+    
+    
+    
+    
