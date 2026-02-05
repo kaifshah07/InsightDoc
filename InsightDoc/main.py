@@ -3,6 +3,7 @@ import re
 from PyPDF2 import PdfReader 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import ollama
 # from sentence_transformers import SentenceTransformer
 
 
@@ -449,7 +450,7 @@ steps - Step 1: Take a user query
 # the user by using   a loop
 
 top_k = 5
-min_similarity = 0.1 #to filter the chunks below it , so they can be removed
+min_similarity = 0.1 #to filter the chunks below it , so they can be removed “Only consider chunks that are at least 10% similar.”
 # 1. User query
 while True: # this lopp create the continous chating with the user
     query = input("\nEnter your Query. Type 'exit' to quit: " ).strip()
@@ -492,6 +493,56 @@ while True: # this lopp create the continous chating with the user
         print(f"\nSimiliraty Scores:- {similarity_scores[idx]:.3f}")
         print("Text Preview:- ",chunk["text"][:500], "...")
         print("-" *80 )
+        
+    
+    print("Now Context Assembly start.")
+    #STEP 3 — CONTEXT ASSEMBLY
+    context_char_lim = 3000 #max char for context block 
+    #Assembiling the context form top chunks 
+    context = ""
+    for idx in filtred_indices[:top_k]:
+        chunk = all_chunks[idx]
+        chunk_text = f"[Source: {chunk['source']}, chunk: {chunk['chunk_id']}]\n{chunk['text']}\n\n"
+        
+        if len(context) +len(chunk_text) > context_char_lim:
+            print("The character limit is exiciding!!!")
+            break #stop adding more chunks if limit execeds or reaches
+        context += chunk_text
+        
+    print("\nAssembeld Context for LLM :-")
+    print(context[:1000], "...\n") # previw first 1000 chars only 
+    
+      # Prompt Construction
+    prompt = f"""
+    You are a helpfull assistant.
+    Answer the question using ONLY the information provided in the context below. 
+    If the answer is not present in the context , "say I dont know".
+        
+    Context:
+    {context}
+    
+    Question:
+    {query}
+    
+    Answer:  
+    """
+    response  = ollama.chat(
+        model="phi",
+        messages=[
+            {
+                "role" : "user",
+                "content" : prompt
+            }
+        ]
+    )
+    answer = response["message"]["content"]
+    
+    print("\nLLM Generated answer: ")
+    print(answer)
+    
+    
+    
+    
         
         
         #old code before the ranking and cleaning the chunks 
@@ -551,6 +602,112 @@ Chunk preview (first 300-500 chars)
 3️⃣ Optional Enhancements
 Group results by PDF (so the user can see which documents contain the most relevant info)
 Highlight query terms in the chunk (advanced, optional)
-
+"""
+"""STEP 3 — CONTEXT ASSEMBLY
+Goal-
+Combine the top relevant chunks into one text block.
+Preserve:
+Metadata (source PDF, chunk ID) for reference or citations.
+Keep it under a token/character limit (so the LLM can process it).
+Prepare it for prompt construction in the next step.
+**This is where we take the retrieved chunks and turn them into a
+single “context” block that an LLM can use to answer a question.
+**Retrieval gave you the pieces of a puzzle.
+Context assembly puts the pieces together so the LLM can see the whole picture.
 """
 
+"""Now after the context assembly we have completed - 
+User Query
+   ↓
+Retriever (TF-IDF)
+   ↓
+Top-K Relevant Chunks
+   ↓
+Assembled Context ✅ (just done)
+
+Now wemove on to - 
+Assembled Context
+   ↓
+Prompt Construction
+   ↓
+LLM
+   ↓
+Final Answer
+ @ So for that we need to - we must convert everything into a single text prompt.
+"""
+    
+"""
+The Core Idea (Very Important)
+
+A RAG prompt always has three parts:
+
+1. Instruction
+2. Context (retrieved chunks)
+3. Question
+
+for eg =
+'You are a helpful assistant.
+Use ONLY the context below to answer the question.
+
+Context:
+<retrieved text>
+
+Question:
+<user query> '
+
+This is what i makes it Reterival agumented 
+
+this is done with the help of prompt var
+
+ORDER OF THE RAG - 
+The Correct Order (Industry-Aligned)
+
+Here is the recommended order, used in real RAG projects:
+
+✅ Step 1 — Retrieval (you did this)
+✅ Step 2 — Filtering & Ranking (you did this)
+✅ Step 3 — Context Assembly (you did this)
+✅ Step 4 — Prompt Generation (you did this)
+
+👉 NOW:
+
+🔜 Step 5 — LLM Answer Generation (Grounded QA)
+
+Only after that, you move to:
+
+6️⃣ Answer citation & traceability
+7️⃣ Persistence (save/load index)
+8️⃣ Better retrievers (embeddings, hybrid search)
+9️⃣ Performance & scaling
+"""
+
+"""The best next step after prompt generation is LLM answer generation with strict grounding.
+
+Not persistence.
+Not embeddings.
+Not optimization.
+
+--You must close the RAG loop first.
+So the most valuable next step is:
+🔑 Prove that your prompt + context actually produces grounded answers
+
+What “LLM Answer Generation” Means (Conceptually)
+This step does not mean: -“Just call OpenAI and print output”
+It means:
+The LLM must answer only from retrieved context
+If context is insufficient → say “I don’t know”
+Output must be deterministic and debuggable
+
+This validates:
+Your chunking
+Your retrieval quality
+Your prompt design
+"""
+
+"""the bery main difference IR and RAG 
+
+Retriever answers: “Where should I look?”
+LLM answers:      “What does this mean?”
+"""
+
+    
