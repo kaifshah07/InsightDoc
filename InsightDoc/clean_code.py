@@ -120,7 +120,7 @@ while True:
         
     # CONTEXT ASSEMBLY
     print("Now Context Assembly start.")
-    context_char_lim = 3000 
+    context_char_lim = 1500 
     context = ""
     for idx in filtred_indices[:top_k]:
         chunk = all_chunks[idx]
@@ -131,15 +131,24 @@ while True:
             break 
         context += chunk_text
     print("\nAssembeld Context for LLM :-")
-    print(context[:1000], "...\n") 
+    # print(context[:1000], "...\n") 
     
     # Prompt Construction
     prompt = f"""
-    You are a helpfull assistant.
-    Answer the question using ONLY the information provided in the context below. 
-    If the answer is not present in the context , "say I dont know".
-        
-    Context:
+         You are a document question-answering system.
+         Your task is to find the answer in the provided document content.
+         Rules (mandatory):
+            - Use ONLY the information explicitly stated in the Context.
+            - Do NOT add, expand, explain, or interpret.
+            - Answer at the SAME LEVEL OF DETAIL as requested in the question.
+            - When listing items, list ONLY what is explicitly asked.
+            - If the question asks for names, return ONLY the names.
+            - Do NOT include sub-points unless they are explicitly requested.
+            - If the answer is not explicitly present, respond exactly:
+              Not found in the document.
+
+    
+    Context(extracted from pdf):
     {context}
     
     Question:
@@ -151,29 +160,43 @@ while True:
     print(prompt[:1000] )
     
     response  = ollama.chat(
-        model="phi",
-        
-        messages=[
-            {
-                "role" : "user",
-                "content" : prompt
-            }
-        ],
-        options={
-        "temperature": 0.7,
-        "top_p": 0.9,
-        "top_k": 40,
-        "num_predict": 512,
-        "repeat_penalty": 1.1    
-        }
+    model="qwen:1.8b",    
+    messages=[
+            {"role" : "user",
+             "content" : prompt}
+    ],
+    options = {
+    "temperature": 0.0,      # ❗ no creativity
+    "top_p": 1.0,
+    "top_k": 20,
+    "num_predict": 120,      # ❗ short factual answers
+    "repeat_penalty": 1.05
+    }
         
     )
-    answer = response["message"]["content"]
-    
+    answer = response["message"]["content"].strip()
     print("\nLLM Generated answer: ")
     print(answer)
     
-    
+    context_parts = []
+source_metadata = []
+
+for rank, idx in enumerate(filtred_indices, start=1):
+    chunk = all_chunks[idx]
+
+    context_parts.append(
+        f"[Source {rank} | {chunk['source']} | Chunk {chunk['chunk_id']}]\n"
+        f"{chunk['text']}"
+    )
+
+    source_metadata.append({
+        "rank": rank,
+        "source": chunk["source"],
+        "chunk_id": chunk["chunk_id"]
+    })
+
+context = "\n\n".join(context_parts)
+
     
     
     
