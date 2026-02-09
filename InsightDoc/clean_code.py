@@ -4,6 +4,38 @@ import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import ollama
+import pickle
+from scipy.sparse import save_npz,load_npz
+
+
+INDEX_DIR = "index_data"
+VECTORIZER_PATH = os.path.join(INDEX_DIR, "tfidf_vectorizer.pk1")
+MATRIX_PATH =   os.path.join(INDEX_DIR ,"tfidf_matrix.npz")
+CHUNK_PATH = os.path.join(INDEX_DIR,"chunks.pk1")
+
+def save_index(vectorizer,tfidf_matrix,all_chunks):
+    os.makedirs(INDEX_DIR,exist_ok=True)
+    
+    with open(VECTORIZER_PATH,"wb") as f:
+        pickle.dump(vectorizer,f)
+    save_npz(MATRIX_PATH,tfidf_matrix)
+    with open(CHUNK_PATH,"wb") as f:
+        pickle.dump(all_chunks,f)
+        
+    print("Index saved to disk successfully...")
+    
+def load_index():
+    with open(VECTORIZER_PATH, "rb") as f:
+        vectorizer = pickle.load(f)
+
+    tfidf_matrix = load_npz(MATRIX_PATH)
+
+    with open(CHUNK_PATH, "rb") as f:
+        all_chunks = pickle.load(f)
+
+    print("Index loaded from disk successfully.")
+    return vectorizer, tfidf_matrix, all_chunks
+
 
 # document ingestion, batch processing, and text normalization pipeline 
 pdf_folder_path = "D:/Engennering/BE Project/InsightDoc_old/data/pdfs"
@@ -83,15 +115,24 @@ print("The total chunks are:- " , len(all_chunks))
 
 chunk_texts = [chunk["text"] for chunk in all_chunks]
 print("The total chunks for TD-IDF are:-" , len(chunk_texts))
+if (
+    os.path.exists(VECTORIZER_PATH)
+    and os.path.exists(MATRIX_PATH)
+    and os.path.exists(CHUNK_PATH)
+):
+    vectorizer, tfidf_matrix, all_chunks = load_index()
+else:
+    vectorizer = TfidfVectorizer(
+        max_features=5000,
+        stop_words="english"
+    )
 
-TfidfVectorizer = TfidfVectorizer(
-    max_features=5000,
-    stop_words="english"
-)
-tfidf_matrix = TfidfVectorizer.fit_transform(chunk_texts)
+    tfidf_matrix = vectorizer.fit_transform(chunk_texts)
+    save_index(vectorizer, tfidf_matrix, all_chunks)
+
 print("TF-IDF martix shape:-" , tfidf_matrix.shape)
 top_k = 5
-min_similarity = 0.1 
+min_similarity = 0.1
 while True:
     query = input("\nEnter your Query. Type 'exit' to quit: " ).strip()
     if query.lower() in {"exit" , "quit"}:
@@ -100,7 +141,8 @@ while True:
     if not query:
         print("please enter avalid query!")
         continue
-    query_vector = TfidfVectorizer.transform([query])
+    query_vector = vectorizer.transform([query])
+
     
     similarity_scores = cosine_similarity(query_vector,tfidf_matrix)[0]
     filtred_indices = [i for i , score in enumerate(similarity_scores) if score>= min_similarity]
@@ -120,44 +162,47 @@ while True:
         
     # CONTEXT ASSEMBLY
     print("Now Context Assembly start.")
-    context_char_lim = 1500 
+    context_char_lim = 5000
     context = ""
-    for idx in filtred_indices[:top_k]:
+    for idx in filtred_indices:
+        if similarity_scores[idx] < min_similarity:
+            break
+
         chunk = all_chunks[idx]
-        chunk_text = f"[Source: {chunk['source']}, chunk: {chunk['chunk_id']}]\n{chunk['text']}\n\n"
-        
-        if len(context) +len(chunk_text) > context_char_lim:
-            print("The character limit is exiciding!!!")
-            break 
+        chunk_text = (
+            f"[Source: {chunk['source']}, Chunk: {chunk['chunk_id']}]\n"
+            f"{chunk['text']}\n\n"
+        )
+
+        if len(context) + len(chunk_text) > context_char_lim:
+            break
+
         context += chunk_text
+
     print("\nAssembeld Context for LLM :-")
     # print(context[:1000], "...\n") 
     
     # Prompt Construction
     prompt = f"""
-         You are a document question-answering system.
-         Your task is to find the answer in the provided document content.
-         Rules (mandatory):
-            - Use ONLY the information explicitly stated in the Context.
-            - Do NOT add, expand, explain, or interpret.
-            - Answer at the SAME LEVEL OF DETAIL as requested in the question.
-            - When listing items, list ONLY what is explicitly asked.
-            - If the question asks for names, return ONLY the names.
-            - Do NOT include sub-points unless they are explicitly requested.
-            - If the answer is not explicitly present, respond exactly:
-              Not found in the document.
+    You are an information extraction assistant.
 
-    
-    Context(extracted from pdf):
+    Answer the user's question using ONLY the information present in the context below.
+    DO NOT add new information.
+    DO NOT rephrase the question.
+    DO NOT invent examples.
+    If the answer is not explicitly present in the context, say:
+    "Answer not found in the provided documents."
+
+    Context:
     {context}
-    
-    Question:
+
+    User Question:
     {query}
-    
-    Answer:  
+
+    Answer (bullet points if applicable):  
     """
-    print("This is the exact promt that the LLm will see--")
-    print(prompt[:1000] )
+    print("The LLM is processing and wroking on an answer.........")
+    # print(prompt[:1000] )
     
     response  = ollama.chat(
     model="qwen:1.8b",    
@@ -179,23 +224,32 @@ while True:
     print(answer)
     
     context_parts = []
-source_metadata = []
+    source_metadata = []
+    
+    for rank, idx in enumerate(filtred_indices[:top_k], start=1):
+        chunk = all_chunks[idx]
+    
+        context_parts.append(
+            f"[Source {rank} | {chunk['source']} | Chunk {chunk['chunk_id']}]\n"
+            f"{chunk['text']}"
+        )
+    
+        source_metadata.append({
+            "rank": rank,
+            "source": chunk["source"],
+            "chunk_id": chunk["chunk_id"]
+        })
+    
+    # context = "\n\n".join(context_parts)
+    
+    print("\nSources Used:\n")
 
-for rank, idx in enumerate(filtred_indices, start=1):
-    chunk = all_chunks[idx]
-
-    context_parts.append(
-        f"[Source {rank} | {chunk['source']} | Chunk {chunk['chunk_id']}]\n"
-        f"{chunk['text']}"
-    )
-
-    source_metadata.append({
-        "rank": rank,
-        "source": chunk["source"],
-        "chunk_id": chunk["chunk_id"]
-    })
-
-context = "\n\n".join(context_parts)
+    for source in source_metadata:
+        print(
+            f"- Source {source['rank']}: "
+            f"{source['source']} (Chunk {source['chunk_id']})"
+        )
+    
 
     
     
