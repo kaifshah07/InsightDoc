@@ -5,13 +5,23 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import ollama
 import pickle
-from scipy.sparse import save_npz,load_npz
+from scipy.sparse import save_npz, load_npz
+import nltk 
+nltk.download("punkt")
+from nltk.tokenize import sent_tokenize
 
 
 INDEX_DIR = "index_data"
 VECTORIZER_PATH = os.path.join(INDEX_DIR, "tfidf_vectorizer.pk1")
 MATRIX_PATH =   os.path.join(INDEX_DIR ,"tfidf_matrix.npz")
 CHUNK_PATH = os.path.join(INDEX_DIR,"chunks.pk1")
+
+def index_exists():
+    return(
+        os.path.exists(VECTORIZER_PATH)
+        and os.path.exists(MATRIX_PATH)
+        and os.path.exists(CHUNK_PATH)
+    )
 
 def save_index(vectorizer,tfidf_matrix,all_chunks):
     os.makedirs(INDEX_DIR,exist_ok=True)
@@ -37,91 +47,91 @@ def load_index():
     return vectorizer, tfidf_matrix, all_chunks
 
 
+if index_exists():
+    print("Existing index found. Loading........")
+    vectorizer,tfidf_matrix,all_chunks = load_index()
+else:
+    print("NoIndex Found From Pdfs.......")
 # document ingestion, batch processing, and text normalization pipeline 
-pdf_folder_path = "D:/Engennering/BE Project/InsightDoc_old/data/pdfs"
-print("The current working directory" , os.getcwd())
-if os.path.exists(pdf_folder_path):
-    print("Pdf folder found ")
-else:
-    print("Pdf folder not found ")
-    exit()
-files  = os.listdir(pdf_folder_path)  
+    pdf_folder_path = "D:/Engennering/BE Project/InsightDoc_old/data/pdfs"
+    print("The current working directory" , os.getcwd())
+    if os.path.exists(pdf_folder_path):
+        print("Pdf folder found ")
+    else:
+        print("Pdf folder not found ")
+        exit()
+    files  = os.listdir(pdf_folder_path)  
 
 
-pdf_files = [] 
-for file in files:
-    if file.lower().endswith(".pdf"):
-        pdf_files.append(file) 
+    pdf_files = [] 
+    for file in files:
+        if file.lower().endswith(".pdf"):
+            pdf_files.append(file) 
 
 
-document_text = {}
-print("Starting the pdf scan one by one for all PDFS")
-for pdf_file in pdf_files:
-    print("\n Processing...........", pdf_file) 
-    
-    pdf_path = os.path.join(pdf_folder_path,pdf_file)  
-    reader = PdfReader(pdf_path)  
-    full_text = ""   
-    
-    for page in reader.pages: 
-        page_text = page.extract_text()
-        if page_text:
-            full_text += page_text
-     
-    full_text = re.sub(r"\n+" , "\n" , full_text)
-    full_text = re.sub(r"\s+", " " , full_text)
-    full_text = "".join(char for char in full_text if char.isprintable())
-    full_text = full_text.strip()
-    
-    document_text[pdf_file] = full_text  #stores the extracted text of each PDF using its filename as an identifier.
-    
-print("\n Processing summary..............")
-print("Total document processed: ", len(document_text)) 
+    document_text = {}
+    print("Starting the pdf scan one by one for all PDFS")
+    for pdf_file in pdf_files:
+        print("\n Processing...........", pdf_file) 
 
-for doc_name, text in document_text.items(): 
-    print(doc_name," -> text length ", len(text))
+        pdf_path = os.path.join(pdf_folder_path,pdf_file)  
+        reader = PdfReader(pdf_path)  
+        full_text = ""   
 
-# Creating Chunks 
-all_chunks = []
-chunk_size = 500
-overlap = 50
+        for page in reader.pages: 
+            page_text = page.extract_text()
+            if page_text:
+                full_text += page_text
 
-for doc_name, text in document_text.items():
+        full_text = re.sub(r"\n+" , "\n" , full_text)
+        full_text = re.sub(r"\s+", " " , full_text)
+        full_text = "".join(char for char in full_text if char.isprintable())
+        full_text = full_text.strip()
 
-    start = 0
-    chunk_id = 0
-    text_length = len(text)
+        document_text[pdf_file] = full_text  #stores the extracted text of each PDF using its filename as an identifier.
 
-    while start < text_length:
+    print("\n Processing summary..............")
+    print("Total document processed: ", len(document_text)) 
 
-        chunk_text = text[start : start + chunk_size]
-        #metadata
-        chunk_data = {
-            "chunk_id": chunk_id,
-            "source": doc_name,
-            "text": chunk_text
-        }
+    for doc_name, text in document_text.items(): 
+        print(doc_name," -> text length ", len(text))
 
-        all_chunks.append(chunk_data)
+    # Now senence based chunking 
+    def sentence_based_chunking(document_text, max_chunk_size=500):
+        all_chunks = []
 
-        start += (chunk_size - overlap)
-        chunk_id += 1
-print("Chunking Starts!!")
-print("The total chunks are:- " , len(all_chunks))
-# print(all_chunks[36], all_chunks[2])
+        for doc_name, text in document_text.items():
+            sentences = sent_tokenize(text)
 
-# We had tested the library for the embeddings which is sentence tranformers and the openai api , 
-# But both did not prove right and then we shifted to TF-IDF which is give below (Main MODEL)
+            current_chunk= ""
+            global_chunk_id = 0
 
-chunk_texts = [chunk["text"] for chunk in all_chunks]
-print("The total chunks for TD-IDF are:-" , len(chunk_texts))
-if (
-    os.path.exists(VECTORIZER_PATH)
-    and os.path.exists(MATRIX_PATH)
-    and os.path.exists(CHUNK_PATH)
-):
-    vectorizer, tfidf_matrix, all_chunks = load_index()
-else:
+            for sentence in sentences:
+                if len(current_chunk) + len(sentence) <= max_chunk_size:
+                    current_chunk += " " + sentence
+                else:
+                    all_chunks.append({
+                        "chunk_id" : chunk_id,
+                        "source" : doc_name,
+                        "text" : current_chunk.strip()
+                    })
+                    chunk_id +=1
+                    current_chunk = sentence #start new chunk
+            if current_chunk.strip():
+                all_chunks.append({
+                    "chunk_id" : chunk_id,
+                    "source" : doc_name,
+                    "text" : current_chunk.strip()
+                })
+        return all_chunks
+    print("Creating sentence based chunks ....")
+    all_chunks = sentence_based_chunking(document_text,max_chunk_size=500)
+    print("Total chunks Created : " , len(all_chunks))
+    # We had tested the library for the embeddings which is sentence tranformers and the openai api , 
+    # But both did not prove right and then we shifted to TF-IDF which is give below (Main MODEL)
+
+    chunk_texts = [chunk["text"] for chunk in all_chunks]
+    print("The total chunks for TD-IDF are:-" , len(chunk_texts))
     vectorizer = TfidfVectorizer(
         max_features=5000,
         stop_words="english"
@@ -181,18 +191,28 @@ while True:
 
     print("\nAssembeld Context for LLM :-")
     # print(context[:1000], "...\n") 
-    
-    # Prompt Construction
-    prompt = f"""
+    """
     You are an information extraction assistant.
-
     Answer the user's question using ONLY the information present in the context below.
     DO NOT add new information.
     DO NOT rephrase the question.
     DO NOT invent examples.
     If the answer is not explicitly present in the context, say:
     "Answer not found in the provided documents."
-
+"""
+    # Prompt Construction
+    prompt = f"""
+    You are a document question-answering system.
+         Your task is to find the answer in the provided document content.
+         Rules (mandatory):
+            - Use ONLY the information explicitly stated in the Context.
+            - Do NOT add, expand, explain, or interpret.
+            - Answer at the SAME LEVEL OF DETAIL as requested in the question.
+            - When listing items, list ONLY what is explicitly asked.
+            - If the question asks for names, return ONLY the names.
+            - Do NOT include sub-points unless they are explicitly requested.
+            - If the answer is not explicitly present, respond exactly:
+              Not found in the document.
     Context:
     {context}
 
