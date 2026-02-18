@@ -171,7 +171,7 @@ For beginners:
  → Store chunks + metadata
 ---- After chunking, you unlock:
 Embeddings
-Vector databases
+Vector databases 
 RAG
 AI-powered search
 Chat over documents
